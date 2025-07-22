@@ -1,0 +1,86 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © RedKTrader
+
+//@version=5
+indicator('RedK SmoothAndLazyMA with Slope Filter', shorttitle = 'SALMA v3.0', overlay = true, timeframe = '', timeframe_gaps = false)
+
+// Inputs
+price       = input(close, 'Source')
+length      = input.int(10, 'Length', minval=1)
+smooth      = input.int(10, 'Extra Smooth [1 = None]', minval=10)
+
+mult        = input.float(0.3, minval=0.05, maxval=3, step=0.05, title='Width',  inline = 'SD Channel', group='Volatility Filter (SD Channel)')
+sd_len      = input.int(8, minval=1,title='Length', inline = 'SD Channel', group='Volatility Filter (SD Channel)')
+
+// StdDev Channel calculation
+baseline    = ta.wma(price, sd_len)
+dev         = mult * ta.stdev(price, sd_len)
+upper       = baseline + dev
+lower       = baseline - dev
+
+// Clamp price inside bands
+cprice      = price > upper ? upper : price < lower ? lower : price
+
+// Plot StdDev bands
+plot(upper, "Upper Band", color=color.green)
+plot(lower, "Lower Band", color=color.red)
+
+// SALMA Calculation: double smoothed WMA on clamped price
+REMA        = ta.wma(ta.wma(cprice, length), smooth)
+
+// --- SLOPE CALCULATION ---
+slopeLength = 3  // bars to measure slope over
+REMA_slope = (REMA - REMA[slopeLength]) / slopeLength
+
+// Threshold for slope significance — tweak as needed
+slopeThreshold = 0.0015
+
+// Define colors based on slope magnitude and direction
+c_up = color.new(#33ff00, 0)       // bright green
+c_dn = color.new(#ff1111, 0)       // bright red
+c_flat = color.new(color.gray, 80) // gray when slope weak
+
+REMA_color = REMA_slope > slopeThreshold ? c_up : REMA_slope < -slopeThreshold ? c_dn : c_flat
+
+// Plot SALMA line colored by slope strength/direction
+plot(REMA, title='SALMA', color=REMA_color, linewidth=3)
+
+// ======================================================================    
+// Optional MAs for reference
+f_ma(source, length, mtype) =>
+    mtype    == 'SMA' ? ta.sma(source, length) : 
+      mtype  == 'EMA' ? ta.ema(source, length) : 
+      ta.wma(source, length)
+
+gr_ma       = 'Optional MA\'s'
+t_ma1       = 'MA #1'
+t_ma2       = 'MA #2'
+
+show_ma1    = input.bool(false, t_ma1, inline=t_ma1, group=gr_ma)
+ma1_type    = input.string('SMA', '', options=['SMA', 'EMA', 'WMA'], inline=t_ma1, group=gr_ma)
+ma1_source  = input.source(close, '', inline=t_ma1, group=gr_ma)
+ma1_length  = input.int(50, '', minval=1, inline=t_ma1, group=gr_ma)
+ma1_color   = #9c27b0
+ma1         = f_ma(ma1_source, ma1_length, ma1_type)
+plot(show_ma1 ? ma1 : na, color = color.new(ma1_color, 0), title = t_ma1, linewidth = 1, display = show_ma1 ? display.all : display.none)
+
+show_ma2    = input.bool(false, t_ma2, inline=t_ma2, group=gr_ma)
+ma2_type    = input.string('SMA', '', options=['SMA', 'EMA', 'WMA'], inline=t_ma2, group=gr_ma)
+ma2_source  = input.source(close, '', inline=t_ma2, group=gr_ma)
+ma2_length  = input.int(100, '', minval=1, inline=t_ma2, group=gr_ma)
+ma2_color   = #1163f6
+ma2         = f_ma(ma2_source, ma2_length, ma2_type)
+plot(show_ma2 ? ma2 : na, color = color.new(ma2_color, 0), title = t_ma2, linewidth = 1, display = show_ma2 ? display.all : display.none)
+
+// ================================================================================================================
+// v3: Adding alerts for swing up/down and any swing 
+// ================================================================================================================
+
+REMA_up     = REMA > REMA[1]
+
+SwingDn     = REMA_up[1] and not(REMA_up)
+SwingUp     = REMA_up    and not(REMA_up[1])
+
+alertcondition(SwingUp, ". SALMA Swing Up", "SALMA Swing Up Detected!")                   // explicit swing up
+alertcondition(SwingDn, ".. SALMA Swing Down", "SALMA Swing Down Detected!")              // explicit swing down
+alertcondition(SwingUp or SwingDn, "... SALMA Swing", "SALMA Swing Detected!")            // Detect any swing
